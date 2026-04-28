@@ -3,840 +3,513 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Battle Arena - フォートナイト風ゲーム</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <title>Battle Arena</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      background: #0a0a15; 
-      font-family: 'Orbitron', sans-serif;
-      overflow: hidden;
-    }
-    #root { 
-      width: 100vw; 
-      height: 100vh; 
-      display: flex; 
-      align-items: center; 
-      justify-content: center;
-    }
-    canvas { 
-      border: 4px solid #4ecdc4; 
-      border-radius: 8px; 
-      box-shadow: 0 0 30px rgba(78, 205, 196, 0.4);
-      cursor: crosshair;
-    }
+    body { background: #0a0a15; font-family: 'Orbitron', sans-serif; overflow: hidden; }
+    #game-wrap { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; position: relative; }
+    canvas { border: 3px solid #4ecdc4; border-radius: 10px; box-shadow: 0 0 40px rgba(78,205,196,0.35); cursor: crosshair; }
+    .admin-panel { position: fixed; top: 14px; right: 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; z-index: 99999; pointer-events: auto; }
+    .admin-input { background: rgba(10,10,25,0.95); border: 2px solid #4ecdc4; border-radius: 6px; color: #4ecdc4; font-family: 'Orbitron', sans-serif; font-size: 12px; padding: 6px 10px; width: 150px; outline: none; text-align: right; pointer-events: auto; }
+    .admin-input::placeholder { color: rgba(78,205,196,0.45); }
+    .admin-badge { background: linear-gradient(90deg,#ffe66d,#ff9f43); color: #1a1a2e; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; display: none; animation: pulse 1.5s infinite; }
+    .admin-badge.active { display: block; }
+    .admin-buttons { display: none; flex-direction: column; gap: 4px; margin-top: 4px; pointer-events: auto; }
+    .admin-buttons.active { display: flex; }
+    .admin-btn { background: rgba(255,230,109,0.18); border: 1px solid #ffe66d; color: #ffe66d; font-family: 'Orbitron', sans-serif; font-size: 10px; padding: 5px 10px; border-radius: 4px; cursor: pointer; text-align: right; pointer-events: auto; }
+    .admin-btn:hover { background: rgba(255,230,109,0.35); }
+    .admin-hint { color: rgba(78,205,196,0.55); font-size: 9px; text-align: right; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.8;transform:scale(1.05)} }
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="game-wrap">
+    <div id="root"></div>
+  </div>
+
+  <!-- 管理者パネルは React の外に出す -->
+  <div class="admin-panel">
+    <input type="text" class="admin-input" id="admin-code" placeholder="コード入力..." maxlength="10" autocomplete="off" />
+    <div class="admin-badge" id="admin-badge">GOD MODE ON</div>
+    <div class="admin-buttons" id="admin-buttons">
+      <div class="admin-hint">管理者コマンド</div>
+      <button class="admin-btn" id="btn-killall">全敵一掃</button>
+      <button class="admin-btn" id="btn-heal">全回復</button>
+      <button class="admin-btn" id="btn-maxammo">弾薬MAX</button>
+      <button class="admin-btn" id="btn-speed">スピードUP</button>
+      <button class="admin-btn" id="btn-spawn">敵追加x5</button>
+    </div>
+  </div>
+
   <script type="text/babel">
     const { useState, useEffect, useRef, useCallback } = React;
 
-    // 武器タイプ - 初期弾薬を150発に
     const WEAPONS = {
-      fists: { id: 'fists', name: '拳', type: 'melee', damage: 10, fireRate: 500, ammo: Infinity, maxAmmo: Infinity, spread: 0, projectileSpeed: 0 },
-      shotgun: { id: 'shotgun', name: 'ショットガン', type: 'ranged', damage: 20, fireRate: 800, ammo: 150, maxAmmo: 150, spread: 0.4, projectileSpeed: 700 },
-      rifle: { id: 'rifle', name: 'アサルトライフル', type: 'ranged', damage: 12, fireRate: 80, ammo: 150, maxAmmo: 150, spread: 0.08, projectileSpeed: 900 },
-      machinegun: { id: 'machinegun', name: 'マシンガン', type: 'ranged', damage: 8, fireRate: 60, ammo: 150, maxAmmo: 150, spread: 0.2, projectileSpeed: 850 },
-      rocket: { id: 'rocket', name: 'ロケットランチャー', type: 'explosive', damage: 100, fireRate: 2000, ammo: 150, maxAmmo: 150, spread: 0, projectileSpeed: 350 },
+      fists: { id:'fists', name:'拳', type:'melee', damage:10, fireRate:500, ammo:Infinity, maxAmmo:Infinity, spread:0, projectileSpeed:0 },
+      shotgun: { id:'shotgun', name:'ショットガン', type:'ranged', damage:20, fireRate:800, ammo:150, maxAmmo:150, spread:0.4, projectileSpeed:700 },
+      rifle: { id:'rifle', name:'アサルトライフル', type:'ranged', damage:12, fireRate:80, ammo:150, maxAmmo:150, spread:0.08, projectileSpeed:900 },
+      machinegun: { id:'machinegun', name:'マシンガン', type:'ranged', damage:8, fireRate:60, ammo:150, maxAmmo:150, spread:0.2, projectileSpeed:850 },
+      rocket: { id:'rocket', name:'ロケットランチャー', type:'explosive', damage:100, fireRate:2000, ammo:150, maxAmmo:150, spread:0, projectileSpeed:350 },
     };
-
-    const WEAPON_LIST = [
-      { id: 'shotgun', name: 'ショットガン', desc: '高ダメージ・遅い発射' },
-      { id: 'rifle', name: 'アサルトライフル', desc: 'バランス良好' },
-      { id: 'machinegun', name: 'マシンガン', desc: '快速射撃・低ダメージ' },
-      { id: 'rocket', name: 'ロケットランチャー', desc: '爆発・高ダメージ' },
-    ];
-
+    const WEAPON_KEYS = { '1':'fists', '2':'shotgun', '3':'rifle', '4':'machinegun', '5':'rocket' };
     const WORLD_SIZE = 4000;
     const ZONE_DAMAGE = 3;
     const INITIAL_ENEMIES = 15;
     const INITIAL_ALLIES = 3;
+    const ADMIN_CODE = '2020';
 
-    function createInitialPlayer(startWeapon = 'rifle') {
-      return {
-        id: 'player',
-        position: { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 },
-        velocity: { x: 0, y: 0 },
-        angle: 0,
-        health: 100,
-        maxHealth: 100,
-        shield: 50,
-        maxShield: 100,
-        ammo: { fists: Infinity, shotgun: 150, rifle: 150, machinegun: 150, rocket: 150 },
-        currentWeapon: startWeapon,
-        isGrounded: true,
-        isBuilding: false,
-        buildMode: null,
-        materials: { wood: 500, stone: 500, metal: 500 },
-      };
+    // 背景装飾データ（木、石、家）
+    function generateDecorations(count, type) {
+      const items = [];
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const d = 200 + Math.random() * (WORLD_SIZE/2 - 300);
+        items.push({ x: WORLD_SIZE/2 + Math.cos(a)*d, y: WORLD_SIZE/2 + Math.sin(a)*d, r: 15 + Math.random()*25, type });
+      }
+      return items;
+    }
+    const TREES = generateDecorations(120, 'tree');
+    const ROCKS = generateDecorations(40, 'rock');
+    const HOUSES = generateDecorations(8, 'house');
+
+    function createPlayer() {
+      return { id:'player', position:{x:WORLD_SIZE/2,y:WORLD_SIZE/2}, angle:0, health:100, maxHealth:100, shield:50, maxShield:100, ammo:{fists:Infinity,shotgun:150,rifle:150,machinegun:150,rocket:150}, currentWeapon:'rifle', isBuilding:false, buildMode:null, materials:{wood:500,stone:500,metal:500}, isGodMode:false, speedBoost:1 };
+    }
+    function createAlly(i, pp) {
+      const a = Math.random()*Math.PI*2, d = 100 + Math.random()*80;
+      return { id:`ally-${i}`, position:{x:pp.x+Math.cos(a)*d,y:pp.y+Math.sin(a)*d}, health:80, maxHealth:80, state:'follow', lastAttackTime:0 };
+    }
+    function createEnemy(i) {
+      const a = (i/INITIAL_ENEMIES)*Math.PI*2, d = 500 + Math.random()*800;
+      return { id:`enemy-${i}`, position:{x:WORLD_SIZE/2+Math.cos(a)*d,y:WORLD_SIZE/2+Math.sin(a)*d}, health:50, maxHealth:50, state:'patrol', targetId:null, lastAttackTime:0, patrolAngle:Math.random()*Math.PI*2 };
     }
 
-    function createAlly(index, playerPos) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 100 + Math.random() * 80;
-      return {
-        id: `ally-${index}`,
-        position: { x: playerPos.x + Math.cos(angle) * distance, y: playerPos.y + Math.sin(angle) * distance },
-        health: 80,
-        maxHealth: 80,
-        state: 'follow',
-        lastAttackTime: 0,
-      };
-    }
-
-    function createEnemy(index) {
-      const angle = (index / INITIAL_ENEMIES) * Math.PI * 2;
-      const distance = 500 + Math.random() * 800;
-      return {
-        id: `enemy-${index}`,
-        position: { x: WORLD_SIZE / 2 + Math.cos(angle) * distance, y: WORLD_SIZE / 2 + Math.sin(angle) * distance },
-        health: 50,
-        state: 'patrol',
-        targetId: null,
-        lastAttackTime: 0,
-      };
-    }
+    let isGodMode = false;
+    window.adminCallbacks = {};
 
     function Game() {
       const canvasRef = useRef(null);
-      const [gameState, setGameState] = useState({
-        status: 'selecting',
-        players: [],
-        allies: [],
-        enemies: [],
-        projectiles: [],
-        buildings: [],
-        zone: { center: { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 }, radius: WORLD_SIZE * 0.7, targetRadius: WORLD_SIZE * 0.15, shrinking: false, damage: ZONE_DAMAGE },
-        remainingPlayers: 1,
-        elapsedTime: 0,
+      const [gameState, setGameState] = useState(() => {
+        const enemies = Array.from({length:INITIAL_ENEMIES},(_,i)=>createEnemy(i));
+        const p = createPlayer();
+        const allies = Array.from({length:INITIAL_ALLIES},(_,i)=>createAlly(i,p.position));
+        return { status:'playing', players:[p], allies, enemies, projectiles:[], buildings:[], explosions:[], zone:{center:{x:WORLD_SIZE/2,y:WORLD_SIZE/2},radius:WORLD_SIZE*0.7,targetRadius:WORLD_SIZE*0.15,shrinking:false,damage:ZONE_DAMAGE}, remainingPlayers:enemies.length+1+INITIAL_ALLIES, elapsedTime:0 };
       });
-      
-      const [selectedWeapon, setSelectedWeapon] = useState('rifle');
-      
+      const gsRef = useRef(gameState);
       const keysRef = useRef(new Set());
-      const mousePositionRef = useRef({ x: 0, y: 0 });
-      const mouseDownRef = useRef(false);
-      const lastTimeRef = useRef(0);
-      const lastShootTimeRef = useRef(0);
-      const gameStateRef = useRef(gameState);
-      const canvasClickHandlerRef = useRef(null);
+      const mouseRef = useRef({x:400,y:300});
+      const mdownRef = useRef(false);
+      const ltRef = useRef(0);
+      const lstRef = useRef(0);
 
-      useEffect(() => {
-        gameStateRef.current = gameState;
-      }, [gameState]);
+      useEffect(() => { gsRef.current = gameState; }, [gameState]);
 
-      const initGame = useCallback((weapon) => {
-        const enemies = Array.from({ length: INITIAL_ENEMIES }, (_, i) => createEnemy(i));
-        const player = createInitialPlayer(weapon);
-        const allies = Array.from({ length: INITIAL_ALLIES }, (_, i) => createAlly(i, player.position));
-        
-        const newState = {
-          status: 'playing',
-          players: [player],
-          allies,
-          enemies,
-          projectiles: [],
-          buildings: [],
-          zone: { center: { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 }, radius: WORLD_SIZE * 0.7, targetRadius: WORLD_SIZE * 0.15, shrinking: false, damage: ZONE_DAMAGE },
-          remainingPlayers: enemies.length + 1 + INITIAL_ALLIES,
-          elapsedTime: 0,
-        };
-        setGameState(newState);
-        gameStateRef.current = newState;
-        keysRef.current = new Set();
+      const resetGame = useCallback(() => {
+        const enemies = Array.from({length:INITIAL_ENEMIES},(_,i)=>createEnemy(i));
+        const p = createPlayer();
+        const allies = Array.from({length:INITIAL_ALLIES},(_,i)=>createAlly(i,p.position));
+        if (isGodMode) p.isGodMode = true;
+        const ns = { status:'playing', players:[p], allies, enemies, projectiles:[], buildings:[], explosions:[], zone:{center:{x:WORLD_SIZE/2,y:WORLD_SIZE/2},radius:WORLD_SIZE*0.7,targetRadius:WORLD_SIZE*0.15,shrinking:false,damage:ZONE_DAMAGE}, remainingPlayers:enemies.length+1+INITIAL_ALLIES, elapsedTime:0 };
+        setGameState(ns); gsRef.current = ns; keysRef.current = new Set();
       }, []);
 
-      const updateGame = useCallback((deltaTime) => {
-        const prev = gameStateRef.current;
-        
+      const updateGame = useCallback((dt) => {
+        const prev = gsRef.current;
         if (prev.status !== 'playing') return;
-        
-        const player = prev.players[0];
-        if (!player) return;
-
+        const p = prev.players[0]; if (!p) return;
         const keys = keysRef.current;
-        const mousePosition = mousePositionRef.current;
-        const mouseDown = mouseDownRef.current;
+        const mouse = mouseRef.current;
+        const md = mdownRef.current;
 
-        // プレイヤー移動
-        const speed = 320;
+        // 移動
+        const speed = (p.isGodMode ? 500 : 320) * (p.speedBoost || 1);
         let dx = 0, dy = 0;
         if (keys.has('w') || keys.has('arrowup')) dy -= 1;
         if (keys.has('s') || keys.has('arrowdown')) dy += 1;
         if (keys.has('a') || keys.has('arrowleft')) dx -= 1;
         if (keys.has('d') || keys.has('arrowright')) dx += 1;
-
         if (dx !== 0 || dy !== 0) {
-          const len = Math.sqrt(dx * dx + dy * dy);
-          dx = (dx / len) * speed * deltaTime;
-          dy = (dy / len) * speed * deltaTime;
-          player.position.x = Math.max(50, Math.min(WORLD_SIZE - 50, player.position.x + dx));
-          player.position.y = Math.max(50, Math.min(WORLD_SIZE - 50, player.position.y + dy));
+          const len = Math.sqrt(dx*dx + dy*dy);
+          dx = (dx/len) * speed * dt;
+          dy = (dy/len) * speed * dt;
+          p.position.x = Math.max(50, Math.min(WORLD_SIZE-50, p.position.x + dx));
+          p.position.y = Math.max(50, Math.min(WORLD_SIZE-50, p.position.y + dy));
         }
 
-        // プレイヤー角度 - マウス方向に向く
-        const cameraOffset = { x: 400, y: 300 };
-        const worldMouseX = mousePosition.x + cameraOffset.x - 400;
-        const worldMouseY = mousePosition.y + cameraOffset.y - 300;
-        player.angle = Math.atan2(worldMouseY - player.position.y, worldMouseX - player.position.x);
+        // カーソル方向を向く
+        const canvas = canvasRef.current;
+        const cw = canvas ? canvas.width : 800;
+        const ch = canvas ? canvas.height : 600;
+        const worldMouseX = mouse.x + p.position.x - cw/2;
+        const worldMouseY = mouse.y + p.position.y - ch/2;
+        p.angle = Math.atan2(worldMouseY - p.position.y, worldMouseX - p.position.x);
+
+        // ゴッドモード自動回復
+        if (p.isGodMode) {
+          p.health = p.maxHealth; p.shield = p.maxShield;
+          Object.keys(p.ammo).forEach(k => { if (p.ammo[k] !== Infinity) p.ammo[k] = WEAPONS[k].maxAmmo; });
+        }
 
         // 射撃
         const now = Date.now();
-        const weapon = WEAPONS[player.currentWeapon];
-        if (mouseDown && weapon && now - lastShootTimeRef.current > weapon.fireRate) {
-          if (player.ammo[player.currentWeapon] > 0) {
-            player.ammo[player.currentWeapon]--;
-            lastShootTimeRef.current = now;
-            
-            if (weapon.type === 'melee') {
-              prev.enemies.forEach(enemy => {
-                const dist = Math.sqrt(Math.pow(enemy.position.x - player.position.x, 2) + Math.pow(enemy.position.y - player.position.y, 2));
-                if (dist < 60) enemy.health -= weapon.damage;
+        const w = WEAPONS[p.currentWeapon];
+        if (md && w && now - lstRef.current > w.fireRate) {
+          const ammo = p.isGodMode ? Infinity : p.ammo[p.currentWeapon];
+          if (ammo > 0) {
+            if (!p.isGodMode) p.ammo[p.currentWeapon]--;
+            lstRef.current = now;
+            if (w.type === 'melee') {
+              prev.enemies.forEach(e => {
+                const d = Math.sqrt((e.position.x-p.position.x)**2 + (e.position.y-p.position.y)**2);
+                if (d < 60) e.health -= p.isGodMode ? 9999 : w.damage;
               });
             } else {
-              const spread = (Math.random() - 0.5) * weapon.spread;
-              const angle = player.angle + spread;
-              
-              // ショットガンは複数発
-              if (weapon.id === 'shotgun') {
+              const sp = (Math.random()-0.5) * w.spread;
+              const a = p.angle + sp;
+              if (w.id === 'shotgun') {
                 for (let i = 0; i < 5; i++) {
-                  const pelletAngle = angle + (Math.random() - 0.5) * 0.3;
-                  prev.projectiles.push({
-                    id: `proj-${now}-${i}`,
-                    position: { x: player.position.x + Math.cos(angle) * 30, y: player.position.y + Math.sin(angle) * 30 + 10 },
-                    velocity: { x: Math.cos(pelletAngle) * weapon.projectileSpeed, y: Math.sin(pelletAngle) * weapon.projectileSpeed },
-                    ownerId: player.id,
-                    damage: weapon.damage,
-                    type: weapon.type,
-                    lifetime: 3,
-                  });
+                  const pa = a + (Math.random()-0.5) * 0.3;
+                  prev.projectiles.push({ id:`proj-${now}-${i}`, position:{x:p.position.x+Math.cos(a)*30,y:p.position.y+Math.sin(a)*30}, velocity:{x:Math.cos(pa)*w.projectileSpeed,y:Math.sin(pa)*w.projectileSpeed}, ownerId:p.id, damage:w.damage, type:w.type, lifetime:3 });
                 }
               } else {
-                prev.projectiles.push({
-                  id: `proj-${now}`,
-                  position: { x: player.position.x + Math.cos(angle) * 30, y: player.position.y + Math.sin(angle) * 30 + 10 },
-                  velocity: { x: Math.cos(angle) * weapon.projectileSpeed, y: Math.sin(angle) * weapon.projectileSpeed },
-                  ownerId: player.id,
-                  damage: weapon.damage,
-                  type: weapon.type,
-                  lifetime: 3,
-                });
+                prev.projectiles.push({ id:`proj-${now}`, position:{x:p.position.x+Math.cos(a)*30,y:p.position.y+Math.sin(a)*30}, velocity:{x:Math.cos(a)*w.projectileSpeed,y:Math.sin(a)*w.projectileSpeed}, ownerId:p.id, damage:w.damage, type:w.type, lifetime:3 });
               }
             }
           }
         }
 
-        // 建築モード切替
-        if (keys.has('b') && !player.isBuilding) {
-          player.isBuilding = true;
-          player.buildMode = 'wall';
+        // 建築
+        if (keys.has('b')) { if (!p.isBuilding) { p.isBuilding = true; p.buildMode = 'wall'; } }
+        if (keys.has('q') && p.isBuilding) p.buildMode = 'wall';
+        if (keys.has('e') && p.isBuilding) p.buildMode = 'stair';
+        if (keys.has('f') && p.isBuilding) p.buildMode = 'floor';
+        if (keys.has('escape')) p.isBuilding = false;
+        if (keys.has(' ') && p.isBuilding && p.buildMode && p.materials.wood >= 50) {
+          p.materials.wood -= 50;
+          prev.buildings.push({ id:`bld-${now}`, type:p.buildMode, position:{x:p.position.x+Math.cos(p.angle)*90,y:p.position.y+Math.sin(p.angle)*90}, health:200, maxHealth:200 });
         }
 
-        // 建築配置
-        if (keys.has(' ') && player.isBuilding && player.buildMode && player.materials.wood >= 50) {
-          player.materials.wood -= 50;
-          prev.buildings.push({
-            id: `building-${now}`,
-            type: player.buildMode,
-            position: { x: player.position.x + Math.cos(player.angle) * 80, y: player.position.y + Math.sin(player.angle) * 80 },
-            health: 100,
-            maxHealth: 100,
-            material: 'wood',
-          });
-        }
-
-        // 味方AI
-        prev.allies.forEach(ally => {
-          const distToPlayer = Math.sqrt(Math.pow(ally.position.x - player.position.x, 2) + Math.pow(ally.position.y - player.position.y, 2));
-          
-          if (distToPlayer > 150) {
-            const angle = Math.atan2(player.position.y - ally.position.y, player.position.x - ally.position.x);
-            ally.position.x += Math.cos(angle) * 180 * deltaTime;
-            ally.position.y += Math.sin(angle) * 180 * deltaTime;
+        // 武器切替（単発検出）
+        Object.keys(WEAPON_KEYS).forEach(k => {
+          if (keys.has(k) && !keys._lastFrame || (keys._lastFrame && !keys._lastFrame.has(k))) {
+            p.currentWeapon = WEAPON_KEYS[k];
           }
-          
-          let closestEnemy = null;
-          let closestDist = 300;
-          
-          prev.enemies.forEach(enemy => {
-            const dist = Math.sqrt(Math.pow(enemy.position.x - ally.position.x, 2) + Math.pow(enemy.position.y - ally.position.y, 2));
-            if (dist < closestDist) {
-              closestDist = dist;
-              closestEnemy = enemy;
-            }
-          });
-          
-          if (closestEnemy && now - ally.lastAttackTime > 800) {
-            const angle = Math.atan2(closestEnemy.position.y - ally.position.y, closestEnemy.position.x - ally.position.x);
-            prev.projectiles.push({
-              id: `ally-proj-${now}-${ally.id}`,
-              position: { ...ally.position },
-              velocity: { x: Math.cos(angle) * 600, y: Math.sin(angle) * 600 },
-              ownerId: ally.id,
-              damage: 8,
-              type: 'ranged',
-              lifetime: 2,
-            });
-            ally.lastAttackTime = now;
-          }
-          
-          ally.position.x = Math.max(50, Math.min(WORLD_SIZE - 50, ally.position.x));
-          ally.position.y = Math.max(50, Math.min(WORLD_SIZE - 50, ally.position.y));
         });
 
         // 敵AI
-        prev.enemies.forEach(enemy => {
-          const distToPlayer = Math.sqrt(Math.pow(enemy.position.x - player.position.x, 2) + Math.pow(enemy.position.y - player.position.y, 2));
-          
-          let closestTarget = player;
-          let closestDist = distToPlayer;
-          
-          prev.allies.forEach(ally => {
-            const dist = Math.sqrt(Math.pow(enemy.position.x - ally.position.x, 2) + Math.pow(enemy.position.y - ally.position.y, 2));
-            if (dist < closestDist) {
-              closestDist = dist;
-              closestTarget = ally;
+        prev.enemies.forEach(e => {
+          if (e.health <= 0) return;
+          const dp = Math.sqrt((p.position.x-e.position.x)**2 + (p.position.y-e.position.y)**2);
+          if (e.state === 'patrol') {
+            e.patrolAngle += (Math.random()-0.5) * 0.05;
+            e.position.x += Math.cos(e.patrolAngle) * 60 * dt;
+            e.position.y += Math.sin(e.patrolAngle) * 60 * dt;
+            e.position.x = Math.max(50, Math.min(WORLD_SIZE-50, e.position.x));
+            e.position.y = Math.max(50, Math.min(WORLD_SIZE-50, e.position.y));
+            if (dp < 400) { e.state = 'chase'; e.targetId = p.id; }
+          } else if (e.state === 'chase') {
+            const a = Math.atan2(p.position.y - e.position.y, p.position.x - e.position.x);
+            e.position.x += Math.cos(a) * 90 * dt;
+            e.position.y += Math.sin(a) * 90 * dt;
+            if (dp > 600) { e.state = 'patrol'; e.targetId = null; }
+            if (dp < 200 && now - e.lastAttackTime > 1000) {
+              e.lastAttackTime = now;
+              if (!p.isGodMode) { const dmg = 5; if (p.shield > 0) p.shield = Math.max(0, p.shield - dmg); else p.health -= dmg; }
             }
-          });
-          
-          if (closestDist < 450) {
-            enemy.state = 'chase';
-            const angle = Math.atan2(closestTarget.position.y - enemy.position.y, closestTarget.position.x - enemy.position.x);
-            enemy.position.x += Math.cos(angle) * 110 * deltaTime;
-            enemy.position.y += Math.sin(angle) * 110 * deltaTime;
-            if (closestDist < 55 && now - enemy.lastAttackTime > 1200) {
-              closestTarget.health -= 8;
-              enemy.lastAttackTime = now;
-            }
-          } else {
-            enemy.state = 'patrol';
-            enemy.position.x += (Math.random() - 0.5) * 60 * deltaTime;
-            enemy.position.y += (Math.random() - 0.5) * 60 * deltaTime;
           }
-          enemy.position.x = Math.max(50, Math.min(WORLD_SIZE - 50, enemy.position.x));
-          enemy.position.y = Math.max(50, Math.min(WORLD_SIZE - 50, enemy.position.y));
+        });
+
+        // 味方AI
+        prev.allies.forEach(ally => {
+          if (ally.health <= 0) return;
+          const dp = Math.sqrt((p.position.x-ally.position.x)**2 + (p.position.y-ally.position.y)**2);
+          if (dp > 120) {
+            const a = Math.atan2(p.position.y - ally.position.y, p.position.x - ally.position.x);
+            ally.position.x += Math.cos(a) * 100 * dt;
+            ally.position.y += Math.sin(a) * 100 * dt;
+          }
+          let ne = null, nd = Infinity;
+          prev.enemies.forEach(e => { if (e.health <= 0) return; const d = Math.sqrt((e.position.x-ally.position.x)**2 + (e.position.y-ally.position.y)**2); if (d < nd && d < 300) { nd = d; ne = e; } });
+          if (ne && now - ally.lastAttackTime > 800) {
+            ally.lastAttackTime = now;
+            const a = Math.atan2(ne.position.y - ally.position.y, ne.position.x - ally.position.x);
+            prev.projectiles.push({ id:`ap-${now}-${ally.id}`, position:{x:ally.position.x,y:ally.position.y}, velocity:{x:Math.cos(a)*600,y:Math.sin(a)*600}, ownerId:ally.id, damage:8, type:'ranged', lifetime:2 });
+          }
         });
 
         // 弾丸更新
         prev.projectiles = prev.projectiles.filter(proj => {
-          proj.position.x += proj.velocity.x * deltaTime;
-          proj.position.y += proj.velocity.y * deltaTime;
-          proj.lifetime -= deltaTime;
-          
-          for (const enemy of prev.enemies) {
-            const dist = Math.sqrt(Math.pow(proj.position.x - enemy.position.x, 2) + Math.pow(proj.position.y - enemy.position.y, 2));
-            if (dist < 30) { enemy.health -= proj.damage; return false; }
+          proj.position.x += proj.velocity.x * dt;
+          proj.position.y += proj.velocity.y * dt;
+          proj.lifetime -= dt;
+          if (proj.lifetime <= 0) return false;
+          if (proj.position.x < 0 || proj.position.x > WORLD_SIZE || proj.position.y < 0 || proj.position.y > WORLD_SIZE) return false;
+          if (proj.ownerId === 'player' || proj.ownerId.startsWith('ally-')) {
+            prev.enemies.forEach(e => {
+              if (e.health <= 0) return;
+              const d = Math.sqrt((e.position.x-proj.position.x)**2 + (e.position.y-proj.position.y)**2);
+              if (d < 25) {
+                e.health -= proj.damage; proj.lifetime = 0;
+                if (proj.type === 'explosive') {
+                  prev.explosions.push({ position:{...proj.position}, radius:100, damage:80, lifetime:0.3 });
+                  prev.enemies.forEach(e2 => { if (e2.health <= 0) return; const d2 = Math.sqrt((e2.position.x-proj.position.x)**2 + (e2.position.y-proj.position.y)**2); if (d2 < 100) e2.health -= 80 * (1 - d2/100); });
+                }
+              }
+            });
           }
-          
-          for (const building of prev.buildings) {
-            const dist = Math.sqrt(Math.pow(proj.position.x - building.position.x, 2) + Math.pow(proj.position.y - building.position.y, 2));
-            if (dist < 40) { building.health -= proj.damage; return false; }
+          if (proj.ownerId.startsWith('enemy-')) {
+            const d = Math.sqrt((p.position.x-proj.position.x)**2 + (p.position.y-proj.position.y)**2);
+            if (d < 25) { if (!p.isGodMode) { if (p.shield > 0) p.shield = Math.max(0, p.shield - proj.damage); else p.health -= proj.damage; } proj.lifetime = 0; }
           }
-          
+          prev.buildings.forEach(b => { const d = Math.sqrt((b.position.x-proj.position.x)**2 + (b.position.y-proj.position.y)**2); if (d < 40) { b.health -= proj.damage; proj.lifetime = 0; } });
           return proj.lifetime > 0;
         });
 
-        const aliveEnemies = prev.enemies.filter(e => e.health > 0);
-        const aliveAllies = prev.allies.filter(a => a.health > 0);
-        prev.remainingPlayers = aliveEnemies.length + 1 + aliveAllies.length;
-
-        if (player.health <= 0) {
-          setTimeout(() => initGame(selectedWeapon), 2000);
-          prev.status = 'lost';
-        } else if (aliveEnemies.length === 0) {
-          prev.status = 'won';
-        }
-
-        if (prev.elapsedTime > 15) prev.zone.shrinking = true;
-        if (prev.zone.shrinking && prev.zone.radius > prev.zone.targetRadius) prev.zone.radius -= 8 * deltaTime;
-
-        const distFromZone = Math.sqrt(Math.pow(player.position.x - prev.zone.center.x, 2) + Math.pow(player.position.y - prev.zone.center.y, 2));
-        if (distFromZone > prev.zone.radius) player.health -= prev.zone.damage * deltaTime;
-
-        prev.allies.forEach(ally => {
-          const allyDistFromZone = Math.sqrt(Math.pow(ally.position.x - prev.zone.center.x, 2) + Math.pow(ally.position.y - prev.zone.center.y, 2));
-          if (allyDistFromZone > prev.zone.radius) ally.health -= prev.zone.damage * deltaTime;
-        });
-
-        prev.elapsedTime += deltaTime;
-        
-        gameStateRef.current = { ...prev };
-        setGameState({ ...prev });
-      }, [selectedWeapon, initGame]);
-
-      const handleKeyDown = useCallback((e) => {
-        const key = e.key.toLowerCase();
-        keysRef.current = new Set([...keysRef.current, key]);
-        
-        if (key === '1') {
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].currentWeapon = 'fists';
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].isBuilding = false;
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].buildMode = null;
-        }
-        if (key === '2') {
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].currentWeapon = 'shotgun';
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].isBuilding = false;
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].buildMode = null;
-        }
-        if (key === '3') {
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].currentWeapon = 'rifle';
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].isBuilding = false;
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].buildMode = null;
-        }
-        if (key === '4') {
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].currentWeapon = 'machinegun';
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].isBuilding = false;
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].buildMode = null;
-        }
-        if (key === '5') {
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].currentWeapon = 'rocket';
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].isBuilding = false;
-          if (gameStateRef.current.players[0]) gameStateRef.current.players[0].buildMode = null;
-        }
-        if (key === 'q') {
-          if (gameStateRef.current.players[0]) { gameStateRef.current.players[0].isBuilding = true; gameStateRef.current.players[0].buildMode = 'wall'; }
-        }
-        if (key === 'e') {
-          if (gameStateRef.current.players[0]) { gameStateRef.current.players[0].isBuilding = true; gameStateRef.current.players[0].buildMode = 'ramp'; }
-        }
-        if (key === 'f') {
-          if (gameStateRef.current.players[0]) { gameStateRef.current.players[0].isBuilding = true; gameStateRef.current.players[0].buildMode = 'floor'; }
-        }
-        if (key === 'escape') {
-          if (gameStateRef.current.players[0]) { gameStateRef.current.players[0].isBuilding = false; gameStateRef.current.players[0].buildMode = null; }
-        }
-        if (key === 'r' && gameStateRef.current.status !== 'playing') initGame(selectedWeapon);
-      }, [selectedWeapon, initGame]);
-
-      const handleKeyUp = useCallback((e) => {
-        const key = e.key.toLowerCase();
-        const newKeys = new Set(keysRef.current);
-        newKeys.delete(key);
-        keysRef.current = newKeys;
-      }, []);
-
-      const handleMouseMove = useCallback((e) => {
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (rect) mousePositionRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      }, []);
-
-      // クリックハンドラ - 武器選択とゲーム開始
-      const handleCanvasClick = (e) => {
-        const rect = canvasRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        
-        if (gameStateRef.current.status === 'selecting') {
-          // 武器選択チェック
-          WEAPON_LIST.forEach((weapon, i) => {
-            const boxX = 800 / 2 - 280 + i * 190;
-            const boxY = 280;
-            if (x >= boxX - 70 && x <= boxX + 70 && y >= boxY - 60 && y <= boxY + 80) {
-              setSelectedWeapon(weapon.id);
-            }
-          });
-          
-          // スタートボタン (より大きな判定範囲)
-          const btnX = 800 / 2;
-          const btnY = 505;
-          const btnW = 200;
-          const btnH = 50;
-          if (x >= btnX - btnW/2 && x <= btnX + btnW/2 && y >= btnY - btnH/2 && y <= btnY + btnH/2) {
-            initGame(selectedWeapon);
-          }
-        }
-      };
-
-      useEffect(() => {
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-        return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-      }, [handleKeyDown, handleKeyUp]);
-
-      useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        canvas.addEventListener('mousemove', handleMouseMove);
-        canvas.addEventListener('mousedown', () => mouseDownRef.current = true);
-        canvas.addEventListener('mouseup', () => mouseDownRef.current = false);
-        canvas.addEventListener('mouseleave', () => mouseDownRef.current = false);
-        return () => { 
-          canvas.removeEventListener('mousemove', handleMouseMove); 
-          canvas.removeEventListener('mousedown', () => mouseDownRef.current = false); 
-          canvas.removeEventListener('mouseup', () => mouseDownRef.current = false);
-          canvas.removeEventListener('mouseleave', () => mouseDownRef.current = false);
-        };
-      }, [handleMouseMove]);
-
-      useEffect(() => {
-        const gameLoop = (time) => {
-          const deltaTime = Math.min((time - lastTimeRef.current) / 1000, 0.1);
-          lastTimeRef.current = time;
-          if (gameStateRef.current.status === 'playing') updateGame(deltaTime);
-          
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d');
-          if (ctx && canvas) render(ctx, canvas.width, canvas.height);
-          
-          requestAnimationFrame(gameLoop);
-        };
-        requestAnimationFrame(gameLoop);
-      }, [updateGame]);
-
-      const render = (ctx, width, height) => {
-        const player = gameStateRef.current.players[0];
-        
-        ctx.fillStyle = '#0a0a15';
-        ctx.fillRect(0, 0, width, height);
-        
-        if (gameStateRef.current.status === 'selecting') {
-          renderWeaponSelect(ctx, width, height);
-          return;
-        }
-        
-        if (!player) return;
-
-        const cameraX = width / 2 - player.position.x;
-        const cameraY = height / 2 - player.position.y;
-        ctx.save();
-        ctx.translate(cameraX, cameraY);
-
-        // グリッド
-        ctx.strokeStyle = '#1a1a2e';
-        ctx.lineWidth = 1;
-        for (let x = 0; x <= WORLD_SIZE; x += 200) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_SIZE); ctx.stroke(); }
-        for (let y = 0; y <= WORLD_SIZE; y += 200) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_SIZE, y); ctx.stroke(); }
+        // 爆発
+        prev.explosions = prev.explosions.filter(e => { e.lifetime -= dt; return e.lifetime > 0; });
 
         // ゾーン
-        ctx.beginPath();
-        ctx.arc(gameStateRef.current.zone.center.x, gameStateRef.current.zone.center.y, gameStateRef.current.zone.radius, 0, Math.PI * 2);
-        ctx.strokeStyle = '#e74c3c';
-        ctx.lineWidth = 8;
-        ctx.setLineDash([30, 15]);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        prev.elapsedTime += dt;
+        if (prev.elapsedTime > 30 && !prev.zone.shrinking) prev.zone.shrinking = true;
+        if (prev.zone.shrinking) prev.zone.radius = Math.max(prev.zone.targetRadius, prev.zone.radius - 20 * dt);
+        const dzc = Math.sqrt((p.position.x-prev.zone.center.x)**2 + (p.position.y-prev.zone.center.y)**2);
+        if (dzc > prev.zone.radius && !p.isGodMode) p.health -= prev.zone.damage * dt;
 
-        const gradient = ctx.createRadialGradient(
-          gameStateRef.current.zone.center.x, gameStateRef.current.zone.center.y, 0,
-          gameStateRef.current.zone.center.x, gameStateRef.current.zone.center.y, gameStateRef.current.zone.radius
-        );
-        gradient.addColorStop(0, 'rgba(46, 204, 113, 0.1)');
-        gradient.addColorStop(1, 'rgba(46, 204, 113, 0)');
-        ctx.fillStyle = gradient;
-        ctx.fill();
+        // 死亡判定
+        prev.enemies = prev.enemies.filter(e => e.health > 0);
+        prev.allies = prev.allies.filter(a => a.health > 0);
+        prev.buildings = prev.buildings.filter(b => b.health > 0);
+
+        if (p.health <= 0 && !p.isGodMode) {
+          prev.status = 'lost';
+          setTimeout(() => resetGame(), 2000);
+        } else if (prev.enemies.length === 0) {
+          prev.status = 'won';
+        }
+        prev.remainingPlayers = prev.enemies.length + 1 + prev.allies.length;
+
+        // キー状態保存（次フレーム用）
+        keys._lastFrame = new Set(keys);
+      }, [resetGame]);
+
+      // ゲームループ
+      useEffect(() => {
+        let aid;
+        const loop = (ts) => {
+          if (!ltRef.current) ltRef.current = ts;
+          const dt = Math.min((ts - ltRef.current) / 1000, 0.05);
+          ltRef.current = ts;
+          updateGame(dt);
+          renderFrame();
+          aid = requestAnimationFrame(loop);
+        };
+        aid = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(aid);
+      }, [updateGame]);
+
+      // 入力イベント
+      useEffect(() => {
+        const kd = (e) => {
+          const k = e.key.toLowerCase();
+          keysRef.current.add(k);
+          if (k === 'r' && gsRef.current.status === 'won') resetGame();
+        };
+        const ku = (e) => keysRef.current.delete(e.key.toLowerCase());
+        const mm = (e) => {
+          const c = canvasRef.current; if (!c) return;
+          const r = c.getBoundingClientRect();
+          mouseRef.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+        };
+        const md = (e) => { if (e.button === 0) mdownRef.current = true; };
+        const mu = (e) => { if (e.button === 0) mdownRef.current = false; };
+        window.addEventListener('keydown', kd);
+        window.addEventListener('keyup', ku);
+        window.addEventListener('mousemove', mm);
+        window.addEventListener('mousedown', md);
+        window.addEventListener('mouseup', mu);
+        return () => {
+          window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku);
+          window.removeEventListener('mousemove', mm); window.removeEventListener('mousedown', md); window.removeEventListener('mouseup', mu);
+        };
+      }, [resetGame]);
+
+      const renderFrame = () => {
+        const c = canvasRef.current; if (!c) return;
+        const ctx = c.getContext('2d');
+        const w = c.width, h = c.height;
+        ctx.clearRect(0, 0, w, h);
+        renderGame(ctx, w, h);
+      };
+
+      const renderGame = (ctx, w, h) => {
+        const p = gsRef.current.players[0];
+        if (!p) { ctx.fillStyle = '#0a0a15'; ctx.fillRect(0,0,w,h); return; }
+
+        // 背景草地（パッチ）
+        ctx.fillStyle = '#2d5a3d'; ctx.fillRect(0,0,w,h);
+        ctx.save();
+        const camX = w/2 - p.position.x, camY = h/2 - p.position.y;
+        ctx.translate(camX, camY);
+
+        // 草地のパッチ（フォートナイト風の明るい草地）
+        const grassColors = ['#3a7a4a', '#347a44', '#2e7040', '#3d8550'];
+        const seed = 12345;
+        for (let gx = 0; gx < WORLD_SIZE; gx += 200) {
+          for (let gy = 0; gy < WORLD_SIZE; gy += 200) {
+            const col = grassColors[Math.floor((gx * 7 + gy * 13 + seed) % grassColors.length)];
+            ctx.fillStyle = col;
+            ctx.fillRect(gx, gy, 200, 200);
+          }
+        }
+
+        // 道
+        ctx.strokeStyle = '#8B7355'; ctx.lineWidth = 40;
+        ctx.beginPath(); ctx.moveTo(WORLD_SIZE/2 - 300, WORLD_SIZE/2); ctx.lineTo(WORLD_SIZE/2 + 300, WORLD_SIZE/2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(WORLD_SIZE/2, WORLD_SIZE/2 - 300); ctx.lineTo(WORLD_SIZE/2, WORLD_SIZE/2 + 300); ctx.stroke();
+
+        // ゾーン
+        const z = gsRef.current.zone;
+        ctx.fillStyle = 'rgba(255,50,50,0.12)'; ctx.beginPath(); ctx.arc(z.center.x, z.center.y, z.radius, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,80,80,0.6)'; ctx.lineWidth = 5; ctx.setLineDash([15, 10]); ctx.stroke(); ctx.setLineDash([]);
+
+        // 木
+        TREES.forEach(t => {
+          ctx.fillStyle = '#5D4037'; ctx.beginPath(); ctx.arc(t.x, t.y+5, t.r*0.3, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#2E7D32'; ctx.beginPath(); ctx.arc(t.x, t.y-5, t.r, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#388E3C'; ctx.beginPath(); ctx.arc(t.x-3, t.y-8, t.r*0.7, 0, Math.PI*2); ctx.fill();
+        });
+
+        // 石
+        ROCKS.forEach(r => {
+          ctx.fillStyle = '#757575'; ctx.beginPath(); ctx.ellipse(r.x, r.y, r.r*0.8, r.r*0.5, 0, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#9E9E9E'; ctx.beginPath(); ctx.ellipse(r.x-2, r.y-2, r.r*0.5, r.r*0.3, 0, 0, Math.PI*2); ctx.fill();
+        });
+
+        // 家
+        HOUSES.forEach(ho => {
+          ctx.fillStyle = '#8D6E63'; ctx.fillRect(ho.x - 30, ho.y - 20, 60, 40);
+          ctx.fillStyle = '#5D4037'; ctx.beginPath(); ctx.moveTo(ho.x - 35, ho.y - 20); ctx.lineTo(ho.x, ho.y - 45); ctx.lineTo(ho.x + 35, ho.y - 20); ctx.closePath(); ctx.fill();
+          ctx.fillStyle = '#42A5F5'; ctx.fillRect(ho.x - 15, ho.y - 5, 12, 12); ctx.fillRect(ho.x + 3, ho.y - 5, 12, 12);
+          ctx.fillStyle = '#3E2723'; ctx.fillRect(ho.x - 8, ho.y + 5, 16, 15);
+        });
 
         // 建築
-        gameStateRef.current.buildings.forEach(b => {
-          ctx.fillStyle = b.material === 'wood' ? '#8b4513' : b.material === 'stone' ? '#808080' : '#4a5568';
-          ctx.fillRect(b.position.x - 35, b.position.y - 35, 70, 70);
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(b.position.x - 35, b.position.y - 35, 70, 70);
+        gsRef.current.buildings.forEach(b => {
+          ctx.save(); ctx.translate(b.position.x, b.position.y);
+          if (b.type === 'wall') { ctx.fillStyle = '#8B4513'; ctx.fillRect(-35,-35,70,70); ctx.strokeStyle = '#5D4E37'; ctx.lineWidth = 3; ctx.strokeRect(-35,-35,70,70); ctx.fillStyle = '#333'; ctx.fillRect(-35,-50,70,6); ctx.fillStyle = '#2ecc71'; ctx.fillRect(-35,-50,70*(b.health/b.maxHealth),6); }
+          else if (b.type === 'stair') { ctx.fillStyle = '#A0522D'; ctx.beginPath(); ctx.moveTo(-35,35); ctx.lineTo(35,35); ctx.lineTo(35,-35); ctx.closePath(); ctx.fill(); }
+          else if (b.type === 'floor') { ctx.fillStyle = '#CD853F'; ctx.fillRect(-50,-50,100,100); }
+          ctx.restore();
         });
 
         // 味方
-        gameStateRef.current.allies.forEach(ally => {
-          if (ally.health <= 0) return;
-          ctx.save();
-          ctx.translate(ally.position.x, ally.position.y);
-          
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-          ctx.beginPath(); ctx.ellipse(0, 18, 16, 6, 0, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#2980B9';
-          ctx.beginPath(); ctx.ellipse(0, 5, 14, 18, 0, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#F5D0C5';
-          ctx.beginPath(); ctx.arc(0, -16, 11, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#3498DB';
-          ctx.beginPath(); ctx.arc(0, -19, 10, Math.PI, 0); ctx.fill();
-          
-          ctx.fillStyle = '#fff';
-          ctx.beginPath(); ctx.arc(-3, -16, 3, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(3, -16, 3, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = '#000';
-          ctx.beginPath(); ctx.arc(-3, -16, 1.5, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(3, -16, 1.5, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#333';
-          ctx.fillRect(-20, -38, 40, 6);
-          ctx.fillStyle = '#2ecc71';
-          ctx.fillRect(-20, -38, 40 * (ally.health / ally.maxHealth), 6);
-          
+        gsRef.current.allies.forEach(a => {
+          ctx.save(); ctx.translate(a.position.x, a.position.y);
+          ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0,20,18,7,0,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#3498db'; ctx.beginPath(); ctx.ellipse(0,6,16,20,0,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#F5D0C5'; ctx.beginPath(); ctx.arc(0,-18,12,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-3,-16,3,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(3,-16,3,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(-3,-16,1.5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(3,-16,1.5,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#333'; ctx.fillRect(-20,-38,40,6); ctx.fillStyle = '#2ecc71'; ctx.fillRect(-20,-38,40*(a.health/a.maxHealth),6);
           ctx.restore();
         });
 
         // 敵
-        gameStateRef.current.enemies.forEach(enemy => {
-          ctx.save();
-          ctx.translate(enemy.position.x, enemy.position.y);
-          
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-          ctx.beginPath(); ctx.ellipse(0, 20, 18, 7, 0, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#8B0000';
-          ctx.beginPath(); ctx.ellipse(0, 6, 16, 20, 0, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#DEB887';
-          ctx.beginPath(); ctx.arc(0, -18, 12, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#fff';
-          ctx.beginPath(); ctx.arc(-4, -20, 4, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(4, -20, 4, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = '#e74c3c';
-          ctx.beginPath(); ctx.arc(-4, -20, 2, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(4, -20, 2, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#333';
-          ctx.fillRect(-22, -42, 44, 7);
-          ctx.fillStyle = '#e74c3c';
-          ctx.fillRect(-22, -42, 44 * (enemy.health / 50), 7);
-          
+        gsRef.current.enemies.forEach(e => {
+          ctx.save(); ctx.translate(e.position.x, e.position.y);
+          ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0,20,18,7,0,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#8B0000'; ctx.beginPath(); ctx.ellipse(0,6,16,20,0,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#DEB887'; ctx.beginPath(); ctx.arc(0,-18,12,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-4,-20,4,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(4,-20,4,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#e74c3c'; ctx.beginPath(); ctx.arc(-4,-20,2,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(4,-20,2,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#333'; ctx.fillRect(-22,-42,44,7); ctx.fillStyle = '#e74c3c'; ctx.fillRect(-22,-42,44*(e.health/e.maxHealth),7);
           ctx.restore();
         });
 
         // 弾丸
-        gameStateRef.current.projectiles.forEach(proj => {
-          const gradient = ctx.createRadialGradient(proj.position.x, proj.position.y, 0, proj.position.x, proj.position.y, 20);
-          gradient.addColorStop(0, 'rgba(255, 230, 109, 0.9)');
-          gradient.addColorStop(1, 'rgba(255, 230, 109, 0)');
-          ctx.fillStyle = gradient;
-          ctx.beginPath(); ctx.arc(proj.position.x, proj.position.y, 20, 0, Math.PI * 2); ctx.fill();
-          
-          ctx.fillStyle = '#ffe66d';
-          ctx.beginPath(); ctx.arc(proj.position.x, proj.position.y, 5, 0, Math.PI * 2); ctx.fill();
+        gsRef.current.projectiles.forEach(proj => {
+          const g = ctx.createRadialGradient(proj.position.x, proj.position.y, 0, proj.position.x, proj.position.y, 20);
+          g.addColorStop(0, 'rgba(255,230,109,0.9)'); g.addColorStop(1, 'rgba(255,230,109,0)');
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(proj.position.x, proj.position.y, 20, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#ffe66d'; ctx.beginPath(); ctx.arc(proj.position.x, proj.position.y, 5, 0, Math.PI*2); ctx.fill();
+        });
+
+        // 爆発
+        gsRef.current.explosions.forEach(exp => {
+          const a = exp.lifetime / 0.3;
+          ctx.fillStyle = `rgba(255,100,50,${a*0.6})`; ctx.beginPath(); ctx.arc(exp.position.x, exp.position.y, exp.radius*(1-a*0.3), 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = `rgba(255,200,100,${a*0.4})`; ctx.beginPath(); ctx.arc(exp.position.x, exp.position.y, exp.radius*0.5*(1-a*0.3), 0, Math.PI*2); ctx.fill();
         });
 
         // プレイヤー
-        ctx.save();
-        ctx.translate(player.position.x, player.position.y);
-        ctx.rotate(player.angle);
-        
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-        ctx.beginPath(); ctx.ellipse(0, 22, 22, 9, 0, 0, Math.PI * 2); ctx.fill();
-        
-        ctx.fillStyle = '#2C3E50';
-        ctx.fillRect(-14, 8, 10, 22);
-        ctx.fillRect(4, 8, 10, 22);
-        
-        ctx.fillStyle = '#27AE60';
-        ctx.beginPath();
-        ctx.moveTo(-16, -8);
-        ctx.lineTo(16, -8);
-        ctx.lineTo(14, 18);
-        ctx.lineTo(-14, 18);
-        ctx.closePath();
-        ctx.fill();
-        
-        ctx.strokeStyle = '#1E8449';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        
-        ctx.fillStyle = '#F5D0C5';
-        ctx.beginPath(); ctx.arc(0, -16, 13, 0, Math.PI * 2); ctx.fill();
-        
-        ctx.fillStyle = '#5D4E37';
-        ctx.beginPath(); ctx.arc(0, -20, 11, Math.PI, 0); ctx.fill();
-        
-        ctx.fillStyle = '#fff';
-        ctx.beginPath(); ctx.arc(-4, -16, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(4, -16, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#2C3E50';
-        ctx.beginPath(); ctx.arc(-4, -16, 2, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(4, -16, 2, 0, Math.PI * 2); ctx.fill();
-        
-        ctx.fillStyle = '#F5D0C5';
-        ctx.fillRect(16, -6, 10, 20);
-        ctx.fillRect(-26, -6, 10, 20);
-        
-        const weapon = WEAPONS[player.currentWeapon];
-        if (weapon) {
-          ctx.fillStyle = '#1a1a1a';
-          if (weapon.id === 'rifle' || weapon.id === 'machinegun') {
-            ctx.fillRect(18, -2, weapon.id === 'machinegun' ? 45 : 38, 7);
-            ctx.fillStyle = '#333';
-            ctx.fillRect(50, -3, 10, 9);
-          } else if (weapon.id === 'shotgun') {
-            ctx.fillRect(18, 0, 35, 10);
-            ctx.fillStyle = '#8B4513';
-            ctx.fillRect(48, -2, 15, 14);
-          } else if (weapon.id === 'rocket') {
-            ctx.fillStyle = '#c0392b';
-            ctx.fillRect(18, -5, 28, 12);
-            ctx.fillStyle = '#f39c12';
-            ctx.beginPath(); ctx.arc(46, 1, 7, 0, Math.PI * 2); ctx.fill();
-          }
-        }
-        
+        ctx.save(); ctx.translate(p.position.x, p.position.y); ctx.rotate(p.angle);
+        ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(0,22,22,9,0,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#2C3E50'; ctx.fillRect(-14,8,10,22); ctx.fillRect(4,8,10,22);
+        if (p.isGodMode) { ctx.shadowColor = '#ffe66d'; ctx.shadowBlur = 25; }
+        ctx.fillStyle = '#27AE60'; ctx.beginPath(); ctx.moveTo(-16,-8); ctx.lineTo(16,-8); ctx.lineTo(14,18); ctx.lineTo(-14,18); ctx.closePath(); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#1E8449'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#F5D0C5'; ctx.beginPath(); ctx.arc(0,-16,13,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#5D4E37'; ctx.beginPath(); ctx.arc(0,-20,11,Math.PI,0); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-4,-16,4,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(4,-16,4,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#2C3E50'; ctx.beginPath(); ctx.arc(-4,-16,2,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(4,-16,2,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#F5D0C5'; ctx.fillRect(16,-6,10,20); ctx.fillRect(-26,-6,10,20);
+        const we = WEAPONS[p.currentWeapon];
+        if (we) { ctx.fillStyle = '#1a1a1a'; if (we.id === 'rifle' || we.id === 'machinegun') { ctx.fillRect(18,-2,we.id==='machinegun'?45:38,7); ctx.fillStyle='#333'; ctx.fillRect(50,-3,10,9); } else if (we.id === 'shotgun') { ctx.fillRect(18,0,35,10); ctx.fillStyle='#8B4513'; ctx.fillRect(48,-2,15,14); } else if (we.id === 'rocket') { ctx.fillStyle='#c0392b'; ctx.fillRect(18,-5,28,12); ctx.fillStyle='#f39c12'; ctx.beginPath(); ctx.arc(46,1,7,0,Math.PI*2); ctx.fill(); } }
         ctx.restore();
 
         // 建築プレビュー
-        if (player.isBuilding && player.buildMode) {
-          const px = player.position.x + Math.cos(player.angle) * 90;
-          const py = player.position.y + Math.sin(player.angle) * 90;
-          ctx.fillStyle = 'rgba(139, 69, 19, 0.5)';
-          ctx.fillRect(px - 35, py - 35, 70, 70);
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 3;
-          ctx.setLineDash([8, 8]);
-          ctx.strokeRect(px - 35, py - 35, 70, 70);
-          ctx.setLineDash([]);
-        }
-
+        if (p.isBuilding && p.buildMode) { const px = p.position.x + Math.cos(p.angle)*90, py = p.position.y + Math.sin(p.angle)*90; ctx.fillStyle = 'rgba(139,69,19,0.5)'; ctx.fillRect(px-35,py-35,70,70); ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.setLineDash([8,8]); ctx.strokeRect(px-35,py-35,70,70); ctx.setLineDash([]); }
         ctx.restore();
-        renderHUD(ctx, width, height);
+
+        renderHUD(ctx, w, h);
       };
 
-      const renderWeaponSelect = (ctx, width, height) => {
-        // タイトル
-        ctx.fillStyle = '#4ecdc4';
-        ctx.font = 'bold 42px Orbitron, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('バトルアリーナ', width / 2, 100);
-        
-        ctx.fillStyle = '#fff';
-        ctx.font = '24px Orbitron, sans-serif';
-        ctx.fillText('武器を選んでください', width / 2, 150);
-        
-        // 武器オプション
-        WEAPON_LIST.forEach((weapon, i) => {
-          const x = width / 2 - 280 + i * 190;
-          const y = 280;
-          const isSelected = selectedWeapon === weapon.id;
-          
-          ctx.fillStyle = isSelected ? '#4ecdc4' : '#16213e';
-          ctx.fillRect(x - 70, y - 60, 140, 140);
-          ctx.strokeStyle = isSelected ? '#fff' : '#4ecdc4';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(x - 70, y - 60, 140, 140);
-          
-          ctx.fillStyle = isSelected ? '#1a1a2e' : '#fff';
-          ctx.font = 'bold 16px Orbitron, sans-serif';
-          ctx.fillText(weapon.name, x, y - 20);
-          
-          ctx.font = '11px Orbitron, sans-serif';
-          ctx.fillText(weapon.desc, x, y + 10);
-          
-          ctx.fillStyle = isSelected ? '#1a1a2e' : '#ffe66d';
-          ctx.font = 'bold 24px Orbitron, sans-serif';
-          ctx.fillText(`${i + 2}`, x, y + 50);
-        });
-        
-        // スタートボタン
-        ctx.fillStyle = '#27AE60';
-        ctx.fillRect(width / 2 - 100, 480, 200, 50);
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(width / 2 - 100, 480, 200, 50);
-        
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 20px Orbitron, sans-serif';
-        ctx.fillText('ゲームスタート', width / 2, 513);
-        
-        ctx.textAlign = 'left';
+      const renderHUD = (ctx, w, h) => {
+        const p = gsRef.current.players[0]; if (!p) return;
+        ctx.fillStyle = '#16213e'; ctx.fillRect(20, h-70, 220, 35); ctx.fillStyle = '#e74c3c'; ctx.fillRect(22, h-68, 216*Math.max(0,p.health/p.maxHealth), 31);
+        if (p.shield > 0) { ctx.fillStyle = '#3498db'; ctx.fillRect(22, h-35, 216*Math.min(1,p.shield/p.maxShield), 10); }
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 14px Orbitron, sans-serif'; ctx.fillText(`HP:${Math.round(Math.max(0,p.health))}`, 250, h-45);
+        ctx.font = 'bold 22px Orbitron, sans-serif'; ctx.fillStyle = '#ffe66d'; ctx.fillText(`👥 ${gsRef.current.remainingPlayers}`, w-140, 45);
+        const aa = gsRef.current.allies.filter(a => a.health > 0).length; if (aa > 0) { ctx.fillStyle = '#3498db'; ctx.fillText(`+${aa} 味方`, w-140, 75); }
+        const m = Math.floor(gsRef.current.elapsedTime/60), s = Math.floor(gsRef.current.elapsedTime%60);
+        ctx.fillText(`${m}:${s.toString().padStart(2,'0')}`, w-140, 105);
+        const we = WEAPONS[p.currentWeapon];
+        ctx.fillStyle = '#16213e'; ctx.fillRect(20, h-140, 200, 55); ctx.fillStyle = '#ff6b35'; ctx.font = 'bold 18px Orbitron, sans-serif'; ctx.fillText(we.name, 30, h-110); ctx.fillStyle = '#fff'; ctx.font = '14px Orbitron, sans-serif'; ctx.fillText(`弾丸:${p.ammo[p.currentWeapon]===Infinity?'∞':p.ammo[p.currentWeapon]}`, 30, h-85);
+        ctx.fillStyle = '#16213e'; ctx.fillRect(w-220, h-70, 200, 55); ctx.fillStyle = '#8b4513'; ctx.fillText(`🪵 ${p.materials.wood}`, w-210, h-45); ctx.fillStyle = '#808080'; ctx.fillText(`🪨 ${p.materials.stone}`, w-110, h-45);
+        if (p.isBuilding) { ctx.fillStyle = '#4ecdc4'; ctx.font = 'bold 16px Orbitron, sans-serif'; ctx.fillText(`🔨 建築:${p.buildMode?.toUpperCase()}`, w/2-100, 45); }
+        ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '11px Orbitron, sans-serif'; ctx.fillText('WASD:移動 | クリック:射撃 | 1-5:武器 | B:建築 | Q/E/F:壁/階段/床', 20, 30);
+        if (p.isGodMode) { ctx.fillStyle = '#ffe66d'; ctx.font = 'bold 18px Orbitron, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('★ GOD MODE ★', w/2, h-20); ctx.textAlign = 'left'; }
+        if (gsRef.current.status === 'won') { ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0,0,w,h); ctx.fillStyle = '#2ecc71'; ctx.font = 'bold 52px Orbitron, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🎉 勝利! 🎉', w/2, h/2); ctx.font = '24px Orbitron, sans-serif'; ctx.fillText('Rキーで再プレイ', w/2, h/2+60); ctx.textAlign = 'left'; }
+        else if (gsRef.current.status === 'lost') { ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0,0,w,h); ctx.fillStyle = '#e74c3c'; ctx.font = 'bold 52px Orbitron, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('💀 敗北 💀', w/2, h/2); ctx.font = '24px Orbitron, sans-serif'; ctx.fillText('リスタート中...', w/2, h/2+60); ctx.textAlign = 'left'; }
       };
 
-      const renderHUD = (ctx, width, height) => {
-        const player = gameStateRef.current.players[0];
-        if (!player) return;
-
-        // 体力バー
-        ctx.fillStyle = '#16213e';
-        ctx.fillRect(20, height - 70, 220, 35);
-        ctx.fillStyle = '#e74c3c';
-        ctx.fillRect(22, height - 68, 216 * Math.max(0, player.health / player.maxHealth), 31);
-        
-        if (player.shield > 0) {
-          ctx.fillStyle = '#3498db';
-          ctx.fillRect(22, height - 35, 216 * Math.min(1, player.shield / player.maxShield), 10);
-        }
-        
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 14px Orbitron, sans-serif';
-        ctx.fillText(`HP: ${Math.round(Math.max(0, player.health))}`, 250, height - 45);
-
-        // プレイヤー数
-        ctx.font = 'bold 22px Orbitron, sans-serif';
-        ctx.fillStyle = '#ffe66d';
-        ctx.fillText(`👥 ${gameStateRef.current.remainingPlayers}`, width - 140, 45);
-        
-        const aliveAllies = gameStateRef.current.allies.filter(a => a.health > 0).length;
-        if (aliveAllies > 0) {
-          ctx.fillStyle = '#3498db';
-          ctx.fillText(`+${aliveAllies} 味方`, width - 140, 75);
-        }
-
-        // タイマー
-        const m = Math.floor(gameStateRef.current.elapsedTime / 60);
-        const s = Math.floor(gameStateRef.current.elapsedTime % 60);
-        ctx.fillText(`${m}:${s.toString().padStart(2, '0')}`, width - 140, 105);
-
-        // 武器
-        const weapon = WEAPONS[player.currentWeapon];
-        ctx.fillStyle = '#16213e';
-        ctx.fillRect(20, height - 140, 200, 55);
-        ctx.fillStyle = '#ff6b35';
-        ctx.font = 'bold 18px Orbitron, sans-serif';
-        ctx.fillText(weapon.name, 30, height - 110);
-        ctx.fillStyle = '#fff';
-        ctx.font = '14px Orbitron, sans-serif';
-        ctx.fillText(`弾丸: ${player.ammo[player.currentWeapon] === Infinity ? '∞' : player.ammo[player.currentWeapon]}`, 30, height - 85);
-
-        // マテリアル
-        ctx.fillStyle = '#16213e';
-        ctx.fillRect(width - 220, height - 70, 200, 55);
-        ctx.fillStyle = '#8b4513';
-        ctx.fillText(`🪵 ${player.materials.wood}`, width - 210, height - 45);
-        ctx.fillStyle = '#808080';
-        ctx.fillText(`🪨 ${player.materials.stone}`, width - 110, height - 45);
-
-        // 建築モード
-        if (player.isBuilding) {
-          ctx.fillStyle = '#4ecdc4';
-          ctx.font = 'bold 16px Orbitron, sans-serif';
-          ctx.fillText(`🔨 建築: ${player.buildMode?.toUpperCase()} (スペース)`, width / 2 - 100, 45);
-        }
-
-        // 操作説明
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        ctx.font = '11px Orbitron, sans-serif';
-        ctx.fillText('WASD: 移動 | クリック: 射撃 | 2-5: 武器 | B: 建築 | Q/E/F: 壁/階段/床', 20, 30);
-
-        // 勝利/敗北
-        if (gameStateRef.current.status === 'won') {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-          ctx.fillRect(0, 0, width, height);
-          ctx.fillStyle = '#2ecc71';
-          ctx.font = 'bold 52px Orbitron, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText('🎉 勝利! 🎉', width / 2, height / 2);
-          ctx.font = '24px Orbitron, sans-serif';
-          ctx.fillText('Rキーで再プレイ', width / 2, height / 2 + 60);
-          ctx.textAlign = 'left';
-        } else if (gameStateRef.current.status === 'lost') {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-          ctx.fillRect(0, 0, width, height);
-          ctx.fillStyle = '#e74c3c';
-          ctx.font = 'bold 52px Orbitron, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText('💀 敗北 💀', width / 2, height / 2);
-          ctx.font = '24px Orbitron, sans-serif';
-          ctx.fillText('リスタート中...', width / 2, height / 2 + 60);
-          ctx.textAlign = 'left';
-        }
-      };
-
-      return <canvas ref={canvasRef} width={800} height={600} style={{ maxWidth: '100%', maxHeight: '100%' }} onClick={handleCanvasClick} />;
+      return <canvas ref={canvasRef} width={800} height={600} style={{maxWidth:'100%',maxHeight:'100%'}} />;
     }
 
     ReactDOM.createRoot(document.getElementById('root')).render(<Game />);
+
+    // 管理者パネル制御（React外）
+    (function(){
+      const ai = document.getElementById('admin-code'), ab = document.getElementById('admin-badge'), abtns = document.getElementById('admin-buttons');
+      if (!ai) return;
+      ai.addEventListener('input', (e) => {
+        const v = e.target.value.trim();
+        if (v === ADMIN_CODE) { isGodMode = true; ab.classList.add('active'); ai.style.borderColor = '#ffe66d'; ai.style.color = '#ffe66d'; if (abtns) abtns.classList.add('active'); }
+        else { ab.classList.remove('active'); if (abtns) abtns.classList.remove('active'); ai.style.borderColor = '#4ecdc4'; ai.style.color = '#4ecdc4'; }
+      });
+      ai.addEventListener('keydown', (e) => { if (e.key === 'Enter') { ai.value = ''; ai.blur(); } });
+
+      document.getElementById('btn-killall').addEventListener('click', () => { if (window.adminCallbacks.killAll) window.adminCallbacks.killAll(); });
+      document.getElementById('btn-heal').addEventListener('click', () => { if (window.adminCallbacks.heal) window.adminCallbacks.heal(); });
+      document.getElementById('btn-maxammo').addEventListener('click', () => { if (window.adminCallbacks.maxAmmo) window.adminCallbacks.maxAmmo(); });
+      document.getElementById('btn-speed').addEventListener('click', () => { if (window.adminCallbacks.speedUp) window.adminCallbacks.speedUp(); });
+      document.getElementById('btn-spawn').addEventListener('click', () => { if (window.adminCallbacks.spawnEnemies) window.adminCallbacks.spawnEnemies(); });
+    })();
   </script>
 </body>
 </html>
